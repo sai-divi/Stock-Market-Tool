@@ -96,9 +96,69 @@ def add_momentum_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    high, low, close = df["High"], df["Low"], df["Close"]
+    plus_dm = high.diff()
+    minus_dm = low.diff()
+    plus_dm[plus_dm < 0] = 0
+    minus_dm[minus_dm > 0] = 0
+    minus_dm = minus_dm.abs()
+    tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
+    atr = tr.rolling(period).mean()
+    plus_di = 100 * (plus_dm.ewm(alpha=1/period).mean() / atr)
+    minus_di = 100 * (minus_dm.ewm(alpha=1/period).mean() / atr)
+    dx = (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan) * 100
+    df["ADX"] = dx.rolling(period).mean()
+    df["DI_plus"] = plus_di
+    df["DI_minus"] = minus_di
+    df["Trend_Strength"] = "strong" if df["ADX"].iloc[-1] > 25 else ("weak" if len(df) > 1 else "unknown") if len(df) else "unknown"
+    return df
+
+
+def add_mfi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    typical = (df["High"] + df["Low"] + df["Close"]) / 3
+    raw = typical * df["Volume"]
+    pos_flow = raw.where(typical > typical.shift(1), 0).rolling(period).sum()
+    neg_flow = raw.where(typical < typical.shift(1), 0).rolling(period).sum()
+    mfi = 100 - (100 / (1 + pos_flow / neg_flow.replace(0, np.nan)))
+    df["MFI"] = mfi
+    return df
+
+
+def add_keltner(df: pd.DataFrame, period: int = 20, atr_mult: float = 1.5) -> pd.DataFrame:
+    ema = df["Close"].ewm(span=period).mean()
+    atr = df["ATR_14"] if "ATR_14" in df else (df["High"] - df["Low"]).rolling(period).mean()
+    df["Keltner_Upper"] = ema + atr_mult * atr
+    df["Keltner_Lower"] = ema - atr_mult * atr
+    df["Keltner_Pos"] = (df["Close"] - df["Keltner_Lower"]) / (df["Keltner_Upper"] - df["Keltner_Lower"])
+    return df
+
+
+def add_aroon(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    high_idx = df["High"].rolling(period).apply(np.argmax) + 1
+    low_idx = df["Low"].rolling(period).apply(np.argmin) + 1
+    df["Aroon_Up"] = ((period - high_idx) / period) * 100
+    df["Aroon_Down"] = ((period - low_idx) / period) * 100
+    df["Aroon_Osc"] = df["Aroon_Up"] - df["Aroon_Down"]
+    return df
+
+
+def add_pivot_points(df: pd.DataFrame) -> pd.DataFrame:
+    prev_high = df["High"].shift(1)
+    prev_low = df["Low"].shift(1)
+    prev_close = df["Close"].shift(1)
+    pivot = (prev_high + prev_low + prev_close) / 3
+    df["Pivot"] = pivot
+    df["R1"] = 2 * pivot - prev_low
+    df["S1"] = 2 * pivot - prev_high
+    df["Pivot_Dist"] = (df["Close"] - df["S1"]) / (df["R1"] - df["S1"]).replace(0, np.nan)
+    return df
+
+
 def add_market_regime(df: pd.DataFrame) -> pd.DataFrame:
     df["Regime_SMA"] = df["Close"] / df["SMA_200"]
     df["Regime_Volatility"] = df["Price_Change"].rolling(21).std() * np.sqrt(252)
+    df["Regime_Range"] = df["Close"] / df["Close"].rolling(100).mean()
     return df
 
 
@@ -126,6 +186,11 @@ def add_all_indicators(df: pd.DataFrame, config=None) -> pd.DataFrame:
         add_roc(df)
         add_williams_r(df)
         add_stochastic(df)
+    add_adx(df)
+    add_mfi(df)
+    add_keltner(df)
+    add_aroon(df)
+    add_pivot_points(df)
     add_momentum_features(df)
     add_market_regime(df)
     return df

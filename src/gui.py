@@ -477,14 +477,58 @@ class LiveChart:
             if macd_h>0: votes.append((1,0.35,"MACD+"))
             elif macd_h<0: votes.append((-1,0.35,"MACD-"))
 
+            # ADX trend strength
+            adx_v=float(df_row.get("ADX",25))
+            di_p=float(df_row.get("DI_plus",25))
+            di_m=float(df_row.get("DI_minus",25))
+            if adx_v>25:
+                if di_p>di_m: votes.append((1,0.5,f"ADX {adx_v:.0f} +DI↑"))
+                elif di_m>di_p: votes.append((-1,0.5,f"ADX {adx_v:.0f} -DI↑"))
+                else: pass
+            elif adx_v>20:
+                if di_p>di_m: votes.append((1,0.2,"Trend building +DI"))
+                elif di_m>di_p: votes.append((-1,0.2,"Trend building -DI"))
+
+            # MFI (volume-weighted RSI)
+            mfi_v=float(df_row.get("MFI",50))
+            d,w=self._ind_signal(mfi_v,20,80,0.5)
+            if d: votes.append((d,w,f"MFI {mfi_v:.0f}"))
+
+            # Keltner Channel
+            kp=float(df_row.get("Keltner_Pos",0.5))
+            d,w=self._ind_signal(kp*100,20,80,0.4)
+            if d: votes.append((d,w,"Keltner Ch."))
+
+            # Aroon oscillator
+            aroon=float(df_row.get("Aroon_Osc",0))
+            if aroon>50: votes.append((1,0.3,"Aroon uptrend"))
+            elif aroon<-50: votes.append((-1,0.3,"Aroon downtrend"))
+
+            # Pivot distance
+            pdist=float(df_row.get("Pivot_Dist",0.5))
+            d,w=self._ind_signal(pdist*100,20,80,0.3)
+            if d: votes.append((d,w,"Pivot level"))
+
+            # Market regime context
+            regime=float(df_row.get("Regime_SMA",1.0))
+            regime_vol=float(df_row.get("Regime_Volatility",0.2))
+            if regime>1.05: votes.append((1,0.2,"Bull market tailwind"))
+            elif regime<0.95: votes.append((-1,0.2,"Bear market headwind"))
+            if regime_vol>0.3: votes.append((-1,0.1,"High vol regime"))
+
         # ---- Store indicator values for explanation ----
         self._ind_values = {}
-        if df_row is not None:
-            self._ind_values["rsi"] = float(df_row.get("RSI_14", 50))
-            self._ind_values["stoch_k"] = float(df_row.get("Stoch_%K", 50))
-            self._ind_values["stoch_d"] = float(df_row.get("Stoch_%D", 50))
-            self._ind_values["bb_pos"] = float(df_row.get("BB_position", 0.5))
-            self._ind_values["macd_h"] = float(df_row.get("MACD_hist", 0))
+        self._ind_values["rsi"] = float(df_row.get("RSI_14", 50)) if df_row is not None else 50
+        self._ind_values["stoch_k"] = float(df_row.get("Stoch_%K", 50)) if df_row is not None else 50
+        self._ind_values["stoch_d"] = float(df_row.get("Stoch_%D", 50)) if df_row is not None else 50
+        self._ind_values["bb_pos"] = float(df_row.get("BB_position", 0.5)) if df_row is not None else 0.5
+        self._ind_values["macd_h"] = float(df_row.get("MACD_hist", 0)) if df_row is not None else 0
+        self._ind_values["adx"] = float(df_row.get("ADX", 0)) if df_row is not None else 0
+        self._ind_values["mfi"] = float(df_row.get("MFI", 50)) if df_row is not None else 50
+        self._ind_values["aroon"] = float(df_row.get("Aroon_Osc", 0)) if df_row is not None else 0
+        self._ind_values["keltner"] = float(df_row.get("Keltner_Pos", 0.5)) if df_row is not None else 0.5
+        self._ind_values["regime"] = float(df_row.get("Regime_SMA", 1)) if df_row is not None else 1
+        self._ind_values["regime_vol"] = float(df_row.get("Regime_Volatility", 0.2)) if df_row is not None else 0.2
         self._ind_values["uc"] = uc
         self._ind_values["dc"] = dc
         self._ind_values["votes"] = votes
@@ -647,6 +691,39 @@ class LiveChart:
         elif dc>=5:
             parts.append(f"Price has been down {dc} consecutive periods, indicating sustained selling pressure.")
 
+        # ADX trend strength
+        adx_v=iv.get("adx",0)
+        if adx_v>25:
+            parts.append(f"ADX at {adx_v:.0f} indicates a strong trending market, which amplifies the conviction of directional signals.")
+        elif adx_v>20:
+            parts.append(f"ADX at {adx_v:.0f} suggests a developing trend, so directional signals are treated with moderate confidence.")
+
+        # MFI
+        mfi_v=iv.get("mfi",50)
+        if mfi_v>80:
+            parts.append(f"Money Flow Index at {mfi_v:.0f} is overbought on a volume-weighted basis, suggesting distribution.")
+        elif mfi_v<20:
+            parts.append(f"Money Flow Index at {mfi_v:.0f} is oversold, indicating accumulation on high volume.")
+
+        # Aroon
+        aroon=iv.get("aroon",0)
+        if aroon>50:
+            parts.append(f"Aroon Oscillator at {aroon:.0f} confirms a strong uptrend with fresh highs being made.")
+        elif aroon<-50:
+            parts.append(f"Aroon Oscillator at {aroon:.0f} confirms a strong downtrend with fresh lows being made.")
+
+        # Market regime
+        regime=iv.get("regime",1.0)
+        regime_vol=iv.get("regime_vol",0.2)
+        if regime>1.05:
+            parts.append(f"The broader market regime is bullish (price {((regime-1)*100):.0f}% above 200-SMA), favoring long positions overall.")
+        elif regime<0.95:
+            parts.append(f"The broader market regime is bearish (price {((1-regime)*100):.0f}% below 200-SMA), favoring caution on longs.")
+        if regime_vol>0.3:
+            parts.append(f"Annualized volatility is elevated at {regime_vol*100:.0f}%, indicating a high-risk environment.")
+        elif regime_vol<0.15:
+            parts.append(f"Annualized volatility is low at {regime_vol*100:.0f}%, suggesting a calm market.")
+
         # ML
         if self._trained:
             ml_dir=self._ml_dir; ml_conf=self._ml_conf
@@ -664,8 +741,11 @@ class LiveChart:
 
         # Final summary
         votes=iv.get("votes",[])
-        buy_w=sum(w for d,_,w in votes if d==1)
-        sell_w=sum(w for d,_,w in votes if d==-1)
+        try:
+            buy_w=sum(float(w) for d,_,w in votes if d==1)
+            sell_w=sum(float(w) for d,_,w in votes if d==-1)
+        except (TypeError, ValueError):
+            buy_w=0; sell_w=0
         if buy_w>sell_w and pd_==1:
             parts.append(f"Overall, {len([v for v in votes if v[0]==1])} indicators favor buying with total weight {buy_w:.1f} vs {sell_w:.1f} for selling, leading to the {ds} recommendation.")
         elif sell_w>buy_w and pd_==-1:
