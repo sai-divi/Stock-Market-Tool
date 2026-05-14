@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import scrolledtext
 import threading, sys, io, json, urllib.request, urllib.parse, ctypes
 from ctypes import wintypes
 from datetime import datetime, timedelta
@@ -83,24 +83,16 @@ class LiveChart:
             tk.Button(cf,text=t,command=c,font=FONT,bg="#1a1a1a",fg=FG,relief=tk.FLAT,bd=1,
                       highlightthickness=1,highlightbackground=h,padx=6).pack(side=tk.LEFT,padx=1)
 
-        # Main: sidebar
+        # Main: news panel (left), predict panel (right)
         mx=tk.Frame(self.parent,bg=BG); mx.pack(fill=tk.BOTH,expand=True,pady=(2,0))
 
-        sf=tk.Frame(mx,bg=BG,width=260); sf.pack(side=tk.LEFT,fill=tk.Y); sf.pack_propagate(False)
-        self.sidebar_notebook=ttk.Notebook(sf,style="Overlay.TNotebook"); self.sidebar_notebook.pack(fill=tk.BOTH,expand=True)
-        sn=self.sidebar_notebook
-        # News
-        nt=tk.Frame(sn,bg=AX_BG)
-        self.side_news_text=scrolledtext.ScrolledText(nt,font=FONT_SM,bg=AX_BG,fg=FG,insertbackground=FG,relief=tk.FLAT,highlightthickness=0)
-        self.side_news_text.pack(fill=tk.BOTH,expand=True); sn.add(nt,text="News")
-        # Predict
-        pt=tk.Frame(sn,bg=AX_BG)
-        self.side_predict_text=scrolledtext.ScrolledText(pt,font=FONT_SM,bg=AX_BG,fg=FG,insertbackground=FG,relief=tk.FLAT,highlightthickness=0)
-        self.side_predict_text.pack(fill=tk.BOTH,expand=True); sn.add(pt,text="Predict")
-        s=ttk.Style(); s.theme_use("default")
-        s.configure("Overlay.TNotebook",background=BG,borderwidth=0)
-        s.configure("Overlay.TNotebook.Tab",background=BTN_BG,foreground=FG,padding=[6,2])
-        s.map("Overlay.TNotebook.Tab",background=[("selected",BG)],foreground=[("selected",FG)])
+        nf=tk.Frame(mx,bg=BG,width=260); nf.pack(side=tk.LEFT,fill=tk.Y); nf.pack_propagate(False)
+        self.side_news_text=scrolledtext.ScrolledText(nf,font=FONT_SM,bg=AX_BG,fg=FG,insertbackground=FG,relief=tk.FLAT,highlightthickness=0)
+        self.side_news_text.pack(fill=tk.BOTH,expand=True)
+
+        pf=tk.Frame(mx,bg=BG); pf.pack(side=tk.RIGHT,fill=tk.BOTH,expand=True)
+        self.side_predict_text=scrolledtext.ScrolledText(pf,font=FONT_SM,bg=AX_BG,fg=FG,insertbackground=FG,relief=tk.FLAT,highlightthickness=0)
+        self.side_predict_text.pack(fill=tk.BOTH,expand=True)
 
         # Status
         self.status_var=tk.StringVar(value="Enter ticker + Refresh to start. Install userscript for live prices.")
@@ -113,10 +105,6 @@ class LiveChart:
     def toggle_invert(self):
         set_theme("light" if _theme=="dark" else "dark")
         self._apply_theme(self.parent.winfo_toplevel())
-        s=ttk.Style(); s.theme_use("default")
-        s.configure("Overlay.TNotebook",background=BG,borderwidth=0)
-        s.configure("Overlay.TNotebook.Tab",background=BTN_BG,foreground=FG,padding=[6,2])
-        s.map("Overlay.TNotebook.Tab",background=[("selected",BG)],foreground=[("selected",FG)])
     def _apply_theme(self,w):
         try:
             if isinstance(w,tk.Frame): w.config(bg=BG)
@@ -624,7 +612,7 @@ class LiveChart:
 class OverlayApp:
     def __init__(self,root:tk.Tk):
         self.root=root; self.root.title("Overlay Predictor"); self.root.configure(bg=BG)
-        self.root.geometry("400x600")
+        self.root.geometry("650x600")
         self._attached_hwnd=None; self._attach_timer=None
         main=tk.Frame(root,bg=BG); main.pack(fill=tk.BOTH,expand=True,padx=4,pady=4)
         self.chart=LiveChart(main,Config())
