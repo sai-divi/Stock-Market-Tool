@@ -55,6 +55,7 @@ class LiveChart:
         self._pred_dir=0; self._pred_conf=0.0; self._latest_price=0.0
         self._reasons=[]
         self._mom1=0; self._mom5=0; self._vol=0; self._pl=0; self._ph=0; self._rsv=50; self._navg=0
+        self._ml_dir=0; self._ml_conf=0; self._ind_values={}
 
         self.build_ui()
         root=self.parent.winfo_toplevel()
@@ -476,6 +477,19 @@ class LiveChart:
             if macd_h>0: votes.append((1,0.35,"MACD+"))
             elif macd_h<0: votes.append((-1,0.35,"MACD-"))
 
+        # ---- Store indicator values for explanation ----
+        self._ind_values = {}
+        if df_row is not None:
+            self._ind_values["rsi"] = float(df_row.get("RSI_14", 50))
+            self._ind_values["stoch_k"] = float(df_row.get("Stoch_%K", 50))
+            self._ind_values["stoch_d"] = float(df_row.get("Stoch_%D", 50))
+            self._ind_values["bb_pos"] = float(df_row.get("BB_position", 0.5))
+            self._ind_values["macd_h"] = float(df_row.get("MACD_hist", 0))
+        self._ind_values["uc"] = uc
+        self._ind_values["dc"] = dc
+        self._ind_values["votes"] = votes
+        self._ind_values["rsv"] = rsv
+
         # ---- Aggregate confluence ----
         buy_w=sum(weight for d,weight,_ in votes if d==1)
         sell_w=sum(weight for d,weight,_ in votes if d==-1)
@@ -557,6 +571,7 @@ class LiveChart:
         rc=min(max(rc,0),98)
 
         self._pred_dir=rd; self._pred_conf=rc
+        self._ml_dir = ml_dir; self._ml_conf = ml_conf
 
         # ---- Build reasoning ----
         reasons=[]
@@ -573,6 +588,93 @@ class LiveChart:
         self._pred_text_kwargs = dict(lp=lp,m1=m1,m5=m5,vs5=vs5,vol=vol,pl=pl,ph=ph,n=n,
             navg=navg,m3=m3,times_arr=times_arr,ppt=None,reasons=reasons)
 
+    def _generate_explanation(self):
+        pd_=self._pred_dir; pc=self._pred_conf
+        ds="BUY" if pd_==1 else("SELL" if pd_==-1 else "HOLD")
+        iv=self._ind_values
+        m1=self._mom1; m5=self._mom5; vol=self._vol
+        navg=self._navg; rsv=iv.get("rsv",50)
+
+        parts=[f"The model recommends {ds} with {pc:.0f}% confidence based on the following analysis."]
+
+        # Momentum
+        if abs(m1)>0.3:
+            parts.append(f"Price momentum is {'up' if m1>0 else 'down'} {abs(m1):.2f}% in the last minute, "
+                         f"{'supporting a bullish bias' if m1>0 else 'suggesting bearish pressure'}.")
+        else:
+            parts.append("Short-term momentum is relatively flat, offering no strong directional signal.")
+
+        # RSI
+        rsi_v=iv.get("rsi",50)
+        if rsi_v>70:
+            parts.append(f"RSI at {rsi_v:.0f} is in overbought territory, which historically signals a potential pullback or trend exhaustion.")
+        elif rsi_v<30:
+            parts.append(f"RSI at {rsi_v:.0f} is in oversold territory, often indicating the asset may be undervalued and due for a bounce.")
+        else:
+            parts.append(f"RSI at {rsi_v:.0f} is in neutral range, showing no extreme overbought or oversold conditions.")
+
+        # Stochastic
+        sk=iv.get("stoch_k",50)
+        if sk>80:
+            parts.append(f"Stochastic %K at {sk:.0f} is elevated, reinforcing the overbought picture.")
+        elif sk<20:
+            parts.append(f"Stochastic %K at {sk:.0f} is deeply oversold, confirming potential for a reversal upward.")
+
+        # MACD
+        mh=iv.get("macd_h",0)
+        if mh>0:
+            parts.append(f"The MACD histogram is positive ({mh:.3f}), indicating bullish momentum in the medium term.")
+        elif mh<0:
+            parts.append(f"The MACD histogram is negative ({mh:.3f}), reflecting bearish momentum.")
+
+        # Bollinger
+        bb=iv.get("bb_pos",0.5)
+        if bb<0.2:
+            parts.append("Price is near the lower Bollinger Band, suggesting the asset may be oversold and could revert upward.")
+        elif bb>0.8:
+            parts.append("Price is near the upper Bollinger Band, suggesting overextension to the upside.")
+
+        # Volatility
+        if vol>2:
+            parts.append(f"Volatility is elevated at {vol:.2f}%, adding risk and suggesting larger-than-usual price swings.")
+        elif vol<0.5:
+            parts.append(f"Volatility is low at {vol:.2f}%, indicating a relatively stable price environment.")
+
+        # Consecutive bars
+        uc=iv.get("uc",0); dc=iv.get("dc",0)
+        if uc>=5:
+            parts.append(f"Price has been up {uc} consecutive periods, showing strong directional persistence.")
+        elif dc>=5:
+            parts.append(f"Price has been down {dc} consecutive periods, indicating sustained selling pressure.")
+
+        # ML
+        if self._trained:
+            ml_dir=self._ml_dir; ml_conf=self._ml_conf
+            ml_tag="BUY" if ml_dir==1 else("SELL" if ml_dir==-1 else "HOLD")
+            if ml_conf>30:
+                parts.append(f"The ML model (XGBoost trained on {len(self.df)} bars) agrees with a {ml_tag} signal "
+                             f"at {ml_conf:.0f}% probability, which has been factored into the final confidence.")
+            else:
+                parts.append(f"The ML model outputs a {ml_tag} signal but at low confidence ({ml_conf:.0f}%), so rule-based indicators are given more weight.")
+
+        # News
+        if abs(navg)>0.15:
+            snl=sentiment_label(navg)
+            parts.append(f"News sentiment is {snl} ({navg:+.2f}), {'reinforcing' if (navg>0.15)==(pd_==1) else 'partially offsetting'} the overall direction.")
+
+        # Final summary
+        votes=iv.get("votes",[])
+        buy_w=sum(w for d,_,w in votes if d==1)
+        sell_w=sum(w for d,_,w in votes if d==-1)
+        if buy_w>sell_w and pd_==1:
+            parts.append(f"Overall, {len([v for v in votes if v[0]==1])} indicators favor buying with total weight {buy_w:.1f} vs {sell_w:.1f} for selling, leading to the {ds} recommendation.")
+        elif sell_w>buy_w and pd_==-1:
+            parts.append(f"Overall, {len([v for v in votes if v[0]==-1])} indicators favor selling with total weight {sell_w:.1f} vs {buy_w:.1f} for buying, supporting the {ds} call.")
+        else:
+            parts.append(f"The evidence is mixed ({buy_w:.1f} buy vs {sell_w:.1f} sell weight), resulting in a low-conviction {ds}.")
+
+        return " ".join(parts)
+
     def _update_predict_display(self):
         kw=getattr(self,"_pred_text_kwargs",None)
         if not kw: return
@@ -587,6 +689,7 @@ class LiveChart:
         tss=(times_arr[-1]-times_arr[0]).total_seconds() if len(times_arr)>1 else 0
         cpm=n/max(tss/60,0.1)
         tl=f"Target: ${ppt:.2f}\n" if ppt else ""
+        explanation=self._generate_explanation()
         self._update_predict_text(
             f"Live Screen Analysis\n{'='*30}\n"
             f"Rec: {di} {ds}\nConf: {pc:.0f}%\n"
@@ -595,7 +698,9 @@ class LiveChart:
             f"Momentum(5): {m5:+.2f}%\nSMA5 off: {vs5:+.2f}%\n"
             f"Volatility: {vol:.2f}%\nRange: ${pl:.2f} - ${ph:.2f}\n"
             f"Samples: {n} @ {cpm:.0f}/min\n{'='*30}\nAnalysis:\n"
-            + "\n".join(f"- {r}" for r in reasons)+f"\n{'='*30}\nLast: {datetime.now().strftime('%H:%M:%S')}"
+            + "\n".join(f"- {r}" for r in reasons)
+            + f"\n{'='*30}\nAI Explanation:\n{explanation}"
+            + f"\n{'='*30}\nLast: {datetime.now().strftime('%H:%M:%S')}"
         )
 
     def _update_predict_text(self,content):
